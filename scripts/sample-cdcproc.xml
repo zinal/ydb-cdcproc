@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ydb-cdcproc>
+    <connection>
+        <entry key="ydb.url">grpcs://ydbd-1:2135/?database=/cluster1/testdb</entry>
+        <entry key="ydb.cafile">ydb-ca.crt</entry>
+        <entry key="ydb.auth.mode">STATIC</entry>
+        <entry key="ydb.auth.username">root</entry>
+        <entry key="ydb.auth.password">????</entry>
+        <entry key="ydb.poolSize">1000</entry>
+    </connection>
+    <rules>
+<!--
+ALTER TABLE int_out_request ADD CHANGEFEED cdc1 WITH (
+    FORMAT = "JSON", MODE = "KEYS_ONLY", INITIAL_SCAN = TRUE
+);
+ALTER TOPIC `int_out_request/cdc1` ADD CONSUMER cdcproc1;
+CREATE TABLE int_out_request_getlast (
+  document_id Text NOT NULL,
+  request_id Text,
+  send_dttm Timestamp,
+  PRIMARY KEY(document_id)
+) WITH (
+    AUTO_PARTITIONING_BY_LOAD = ENABLED,
+    AUTO_PARTITIONING_BY_SIZE = ENABLED,
+    AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 200,
+    AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 200
+);
+-->
+        <rule name="int_out_request:getlast">
+            <source table="int_out_request" topic="cdc1" consumer="cdcproc1"/>
+            <apply-query>
+<![CDATA[
+DECLARE $input AS List<Struct<id:Text>>;
+UPSERT INTO int_out_request_getlast
+SELECT req.int_ref AS document_id, req.id AS request_id, req.send_dttm AS send_dttm
+FROM AS_TABLE($input) AS input
+INNER JOIN int_out_request AS req
+  ON req.id = input.id
+LEFT JOIN int_out_request_getlast AS req_last
+  ON req_last.document_id = req.int_ref
+WHERE req_last.send_dttm IS NULL OR req_last.send_dttm < req.send_dttm;
+]]>
+            </apply-query>
+        </rule>
+    </rules>
+</ydb-cdcproc>
